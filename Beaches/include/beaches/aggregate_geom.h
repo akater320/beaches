@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <iostream>
 #include <numeric>
+#include <execution>
 
 #include "ogr_feature.h"
 #include "ogrsf_frmts.h"

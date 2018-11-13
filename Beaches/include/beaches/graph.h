@@ -28,17 +28,15 @@
 namespace beaches {
 	class Graph {
 	public:
-		void load(const char* fileName, std::string outputFileName, const char* gridFilename);
-		void getEdges(osmium::object_id_type nodeId, std::vector<Edge*>& incidentEdges);
+		void load(const char* fileName);
+        //void exportBufferedVectors(double bufferDistance, double padding, int rows, int columns, const char* outputFile);
+        void exportBufferedLinestrings(const char* osmFile, const std::vector<double>& bufferDistance, double padding, int rows, int columns, std::string fileName) noexcept;
+        void exportEdges(const char* osmFile, std::string fileName) noexcept;
 	private:
-		//void exportGrid(const char* fileName) const noexcept;
-		//void populateGrid(GridGeomAggregator& grid, size_t edgeStart, size_t edgeEnd) const;
-		void exportEdges(const char* osmFile, std::string fileName) noexcept;
-		void exportBufferedLinestrings(const char* osmFile, std::string fileName) noexcept;
+        void getEdges(osmium::object_id_type nodeId, std::vector<Edge*>& incidentEdges);
 		void initalizeEdgeVectors() noexcept;
 		void findCoastlineRing();
 		void findReachableWater();
-		//void addIslandsInReachablePolys(const WaterPolygonRelationManager& relations);
 		void populateBranchingNodes(const char* fileName) noexcept;
 		void populateUsedNodes(const char* fileName, bool includeAll) noexcept;
 		void propagateCoastRing(Edge* startEdge, bool waterOnRight) noexcept;
@@ -71,9 +69,8 @@ namespace beaches {
 		NodeLocationManger m_nodeManager;
 	};
 
-	inline void beaches::Graph::load(const char * fileName, std::string outputFileName, const char* gridFilename)
+	inline void beaches::Graph::load(const char * fileName)
 	{
-
 		{ //scope for relationManager. Want to release this memory when we're done.
 			auto relationManager = WaterPolygonRelationManager();
 			std::cout << "Reading relations....\n";
@@ -132,7 +129,7 @@ namespace beaches {
 
 		//exportGrid(gridFilename);
 
-		exportBufferedLinestrings(fileName, gridFilename);
+		//exportBufferedLinestrings(fileName, gridFilename);
 	}
 
 	inline void beaches::Graph::populateBranchingNodes(const char* fileName) noexcept
@@ -553,9 +550,9 @@ namespace beaches {
 		grids[0].Export(fileName);
 	}*/
 
-	inline void beaches::Graph::exportBufferedLinestrings(const char* osmFile, std::string fileName) noexcept
+	inline void beaches::Graph::exportBufferedLinestrings(const char* osmFile, const std::vector<double>& bufferSizes, double padding, int rows, int columns, std::string fileName) noexcept
 	{
-		//Step 1. Dump all the memory we won't need.
+		//Dump all the memory we won't need.
 		m_edges.erase(
 			std::remove_if(m_edges.begin(), m_edges.end(), [](const Edge& pEdge) {
 			return !pEdge.hasFlag(EdgeFlags::ReachableFromSea); }),
@@ -567,119 +564,118 @@ namespace beaches {
 
 		std::cout << "Extracting rings...\n";
 
-		//auto aggregator = AggregateGeom(-180.0, -90.0, 180.0, 90.0);
-		auto aggregator = GridGeomAggregator(180, 400, -200.0, -90.0, 200.0, 90.0);
+        //Translations to copy the geom across +/- meridians.
+        std::vector<std::tuple<double, double>> offsets{ {-360.0, 0.0}, {0.0, 0.0}, {360.0, 0} };
 
-		//Translations to copy the geom across +/- meridians.
-		std::vector<std::tuple<double, double>> offsets{ {-360.0, 0.0}, {0.0, 0.0}, {360.0, 0} };
+        for (const double bufferDistance : bufferSizes) {
+            std::cout << "\nBuffer size: " << bufferDistance << "\n";
+            std::for_each(m_edges.begin(), m_edges.end(), [](Edge& pEdge) { pEdge.setFlag(EdgeFlags::Visited, false); });
+            //4326 coordinates.
+            auto aggregator = GridGeomAggregator(rows, columns, -180.0 - padding, -90.0, 180.0 + padding, 90.0);
 
-		auto insertLinestringFunction = [&nodeManager = m_nodeManager, &aggregator](const std::vector<osmium::object_id_type>& thePath, const double dx, const double dy) {
-			if (thePath.size() < 2) {
-				std::cout << "Degenerate line.\n";
-				return; //Not a line.
-			}
+            auto insertLinestringFunction = [&nodeManager = m_nodeManager, &aggregator, bufferDistance](const std::vector<osmium::object_id_type>& thePath, const double dx, const double dy) {
+                if (thePath.size() < 2) {
+                    std::cout << "Degenerate line.\n";
+                    return; //Not a line.
+                }
 
-			OGRLineString* lineString = static_cast<OGRLineString*>(OGRGeometryFactory::createGeometry(OGRwkbGeometryType::wkbLineString));
+                OGRLineString* lineString = static_cast<OGRLineString*>(OGRGeometryFactory::createGeometry(OGRwkbGeometryType::wkbLineString));
 
-			std::for_each(thePath.begin(), thePath.end(),
-				[&line = lineString, &nodes = nodeManager, dx, dy](const osmium::object_id_type nodeId) {
-				const auto node = nodes.GetNode(nodeId);
-				line->addPoint(node.Lon() + dx, node.Lat() + dy);
-			});
+                std::for_each(thePath.begin(), thePath.end(),
+                    [&line = lineString, &nodes = nodeManager, dx, dy](const osmium::object_id_type nodeId) {
+                    const auto node = nodes.GetNode(nodeId);
+                    line->addPoint(node.Lon() + dx, node.Lat() + dy);
+                });
 
-			OGRGeometry* simplifiedLine = lineString->Simplify(.001);
-			OGRGeometryFactory::destroyGeometry(lineString);
-			OGRPolygon* bufferedLine = static_cast<OGRPolygon*>(simplifiedLine->Buffer(.075, 4));
-			OGRGeometryFactory::destroyGeometry(simplifiedLine);
+                OGRGeometry* simplifiedLine = lineString->Simplify(.001);
+                OGRGeometryFactory::destroyGeometry(lineString);
+                OGRPolygon* bufferedLine = static_cast<OGRPolygon*>(simplifiedLine->Buffer(bufferDistance, 4));
+                OGRGeometryFactory::destroyGeometry(simplifiedLine);
 
-			aggregator.Add(*bufferedLine);
-			OGRGeometryFactory::destroyGeometry(bufferedLine);
-		};
+                aggregator.Add(*bufferedLine);
+                OGRGeometryFactory::destroyGeometry(bufferedLine);
+            };
 
-		auto insertPathsFunc = [&insertLinestringFunction, &offsets, &aggregator](std::vector<std::vector<osmium::object_id_type>>& paths) {
-			std::cout << "_";
-			std::for_each(std::execution::par, paths.begin(), paths.end(),
-				[&insertLinestringFunction, &offsets](const std::vector<osmium::object_id_type>& thePath)
-			{
-				std::for_each(offsets.begin(), offsets.end(), [&thePath, &insertLinestringFunction](const std::tuple<double, double>& translation) {
-					auto[dx, dy] = translation;
-					insertLinestringFunction(thePath, dx, dy);
-				});
-			});
+            auto insertPathsFunc = [&insertLinestringFunction, &offsets, &aggregator](std::vector<std::vector<osmium::object_id_type>>& paths) {
+                std::cout << "_";
+                std::for_each(std::execution::par, paths.begin(), paths.end(),
+                    [&insertLinestringFunction, &offsets](const std::vector<osmium::object_id_type>& thePath)
+                {
+                    std::for_each(offsets.begin(), offsets.end(), [&thePath, &insertLinestringFunction](const std::tuple<double, double>& translation) {
+                        auto[dx, dy] = translation;
+                        insertLinestringFunction(thePath, dx, dy);
+                    });
+                });
 
-			paths.clear();
+                paths.clear();
 
-			std::cout << "x";
-			//TODO: Too expensive here?
-			aggregator.ConsoldiateCells();
-			std::cout << "|";
-		};
+                std::cout << "x";
+                aggregator.ConsoldiateCells();
+                std::cout << "|";
+            };
 
-		{
-			std::vector<Edge*> incidentEdges;
-			std::vector<std::vector<osmium::object_id_type>> paths;
-			std::vector<osmium::object_id_type> pathForward;
-			for (auto& outerEdge : m_edges) {
-				if (outerEdge.hasFlag(EdgeFlags::ReachableFromSea) && !outerEdge.hasFlag(EdgeFlags::Visited)) {
-					//Start a path (hopefully a ring) from here.
+            {
+                std::vector<Edge*> incidentEdges;
+                std::vector<std::vector<osmium::object_id_type>> paths;
+                std::vector<osmium::object_id_type> pathForward;
+                for (auto& outerEdge : m_edges) {
+                    if (outerEdge.hasFlag(EdgeFlags::ReachableFromSea) && !outerEdge.hasFlag(EdgeFlags::Visited)) {
+                        //Start a path (hopefully a ring) from here.
 
-					osmium::object_id_type headNode = outerEdge.Node2();
-					Edge* nextEdge = &outerEdge;
+                        osmium::object_id_type headNode = outerEdge.Node2();
+                        Edge* nextEdge = &outerEdge;
 
-					while (true) {
-						pathForward.push_back(headNode);
-						nextEdge->setFlag(EdgeFlags::Visited, true);
+                        while (true) {
+                            pathForward.push_back(headNode);
+                            nextEdge->setFlag(EdgeFlags::Visited, true);
 
-						incidentEdges.clear();
-						getEdges(headNode, incidentEdges);
+                            incidentEdges.clear();
+                            getEdges(headNode, incidentEdges);
 
-						auto candidateIter = std::find_if(incidentEdges.begin(), incidentEdges.end(),
-							[](const Edge* pEdge) {
-							return pEdge->hasFlag(EdgeFlags::Visited) == false &&
-								pEdge->hasFlag(EdgeFlags::ReachableFromSea) == true;
-						});
+                            auto candidateIter = std::find_if(incidentEdges.begin(), incidentEdges.end(),
+                                [](const Edge* pEdge) {
+                                return pEdge->hasFlag(EdgeFlags::Visited) == false &&
+                                    pEdge->hasFlag(EdgeFlags::ReachableFromSea) == true;
+                            });
 
-						if (candidateIter == incidentEdges.end()) {
-							break; //break out of the while loop.
-						}
-						else {
-							nextEdge = (*candidateIter);
-							headNode = nextEdge->Node1() == headNode ? nextEdge->Node2() : nextEdge->Node1();
-						}
-					}
+                            if (candidateIter == incidentEdges.end()) {
+                                break; //break out of the while loop.
+                            }
+                            else {
+                                nextEdge = (*candidateIter);
+                                headNode = nextEdge->Node1() == headNode ? nextEdge->Node2() : nextEdge->Node1();
+                            }
+                        }
 
-					if (pathForward.size() >= 2) {
+                        if (pathForward.size() >= 2) {
 
-						//Push back a copy.
-						//Split the path to some maximum size for performance.
-						size_t indexStart = 0;
-						size_t indexEnd = 0;
-						while (indexStart < pathForward.size()) {
-							indexEnd = std::min(indexStart + 1000, pathForward.size());
-							if (indexEnd == pathForward.size() - 1) {
-								indexEnd++; //don't orphan the final point.
-							}
+                            //Push back a copy.
+                            //Split the path to some maximum size for performance.
+                            size_t indexStart = 0;
+                            size_t indexEnd = 0;
+                            while (indexStart < pathForward.size()) {
+                                indexEnd = std::min(indexStart + 1000, pathForward.size());
+                                if (indexEnd == pathForward.size() - 1) {
+                                    indexEnd++; //don't orphan the final point.
+                                }
 
-							paths.emplace_back(pathForward.begin() + indexStart, pathForward.begin() + indexEnd);
-							indexStart = indexEnd;
-						}
+                                paths.emplace_back(pathForward.begin() + indexStart, pathForward.begin() + indexEnd);
+                                indexStart = indexEnd;
+                            }
+                            if (paths.size() >= 50'000) {
+                                insertPathsFunc(paths);
+                            }
+                        }
+                        pathForward.clear();
+                    }
+                }
 
-						//paths.push_back(pathForward);
+                insertPathsFunc(paths);
+            } //scope for paths vector.
 
-						if (paths.size() >= 50'000) {
-							insertPathsFunc(paths);
-						}
-					}
-					pathForward.clear();
-				}
-			}
-
-			insertPathsFunc(paths);
-		} //scope for paths vector.
-
-		std::cout << "Exporting...\n";
-		//aggregator.ExportAsGrid(fileName.c_str(), 100, 100);
-		aggregator.Export(fileName.c_str());
+            std::cout << "Exporting...\n";
+            aggregator.Export((fileName + "_" + std::to_string(bufferDistance) + ".shp").c_str());
+        }
 	}
 
 	inline void beaches::Graph::exportEdges(const char* osmFile, std::string fileName) noexcept

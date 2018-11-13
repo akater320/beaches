@@ -150,7 +150,7 @@ namespace beaches {
 			printf("Creation of output file failed.\n");
 			exit(1);
 		}
-		OGRLayer *m_poLayer = poDS->CreateLayer("paths", NULL, wkbPolygon, NULL);
+		OGRLayer *m_poLayer = poDS->CreateLayer("grid", NULL, wkbPolygon, NULL);
 		if (m_poLayer == NULL)
 		{
 			printf("Layer creation failed.\n");
@@ -160,7 +160,7 @@ namespace beaches {
 			OGRFieldDefn oField("row", OGRFieldType::OFTInteger);
 			if (m_poLayer->CreateField(&oField) != OGRERR_NONE)
 			{
-				printf("Creating Degree field failed.\n");
+				printf("Creating row field failed.\n");
 				exit(1);
 			}
 		}
@@ -168,13 +168,12 @@ namespace beaches {
 			OGRFieldDefn oField("col", OGRFieldType::OFTInteger);
 			if (m_poLayer->CreateField(&oField) != OGRERR_NONE)
 			{
-				printf("Creating Degree field failed.\n");
+				printf("Creating col field failed.\n");
 				exit(1);
 			}
 		}
 
 
-		//TODO: Make Parallel.
 		for (int iRow = 0; iRow < m_geomRows.size(); iRow++) {
 			const auto& row = m_geomRows[iRow];
 			for (int iCol = 0; iCol < row.size(); iCol++) {
