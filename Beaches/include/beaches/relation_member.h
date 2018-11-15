@@ -38,8 +38,8 @@ namespace beaches {
 	private:
 		uint8_t m_relationIdBytes[5];
 		uint8_t m_memberIdBytes[5];
-		EdgeFlags m_flags;
-		bool m_reachableFromSea = false; //TODO: make atomic?
+		EdgeFlags m_flags; //1 byte
+		bool m_reachableFromSea = false; //1-4 bytes? //TODO: make atomic?
 		//16 bytes after padding. 1 byte alignment.
 	};
 }
