@@ -1,0 +1,12 @@
+[submodule "Beaches/include/libosmium"]
+	path = Beaches/include/libosmium
+	url = https://github.com/osmcode/libosmium.git
+[submodule "Beaches/include/protozero"]
+	path = Beaches/include/protozero
+	url = https://github.com/mapbox/protozero.git
+[submodule "Beaches/vendor/protozero"]
+	path = Beaches/vendor/protozero
+	url = https://github.com/mapbox/protozero.git
+[submodule "Beaches/vendor/libosmium"]
+	path = Beaches/vendor/libosmium
+	url = https://github.com/osmcode/libosmium.git
