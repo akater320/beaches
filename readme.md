@@ -15,7 +15,7 @@ You'll need Visual Studio or Visual Studio Build Tools. If you've installed some
 
 To build on the command line, open the `x64 Native Tools Command Prompt` and type:
 ```
-set GDAL_INCLUDE=/path/to/gdal_and_org/headersset 
+set GDAL_INCLUDE=/path/to/gdal_and_ogr/headers 
 set GDAL_LIB=/path/to/gdal/libs
 MSBuild /t:Rebuild /p:Configuration=Release
 ```
@@ -35,14 +35,14 @@ The planet.osm.pbf is avialable form https://planet.openstreetmap.org/. It usual
 Extracts are available from http://download.geofabrik.de/. These are usally updated every day. The country-scale and smaller extracts can be very useful when debugging as continet-scale files can quicly overflow the limits of the shapefiles that Beaches outputs.  
 
 ## About the algorithm  
-In OSM, coastline is labeled with the tag "natural"="coastline". This classification can somewhat arbitrary - e.g. some river-banks are considered coastline while other, similar ones are not - but provides a good starting point. Ways labeled as "natural"="coastline" have the convenient property that they will always have on their right. (It should not be assumed that land is on the left.) Beaches begins with the OSM shoreline then adds all polygons that are connected to the sea/ocean. Unlike other tools that deal with OSM coastlines, beaches internally uses vectors rather than polygons. This allows edges that are bordered by water on both sides to be discarded.  
+In OSM, coastline is labeled with the tag "natural"="coastline". This classification can somewhat arbitrary. For example, some river-banks are considered coastline while other, similar ones are not. Despite this, the coastline tag provides a good starting point. *Ways* labeled as "natural"="coastline" have the convenient property that they will always have water on their right. (It should not be assumed that land is on the left.) *Beaches* begins with the OSM shoreline then adds all polygons that are connected to the sea/ocean. Rather than simply building up polygons, *beaches* maintains an internal datastructure to track connections between each node. This allows edges that are bordered by water on both sides to be discarded.  
 
-One of the major challenges for the algorithm is that polygons in OSM are primarily used for rendering basemaps. Overlapping polygons look fine when rendered. ([osmcoastlines](https://github.com/osmcode/osmcoastline) even inflates polygons so that they do overlap to improve rendering quality.) When OSM contributors are editing polygons they often don't notice if the polygons are topologically inconsistent or don't strictly adhere to the OSM guidelines for multipolygon relations.
+One of the major challenges for the algorithm is that polygons in OSM are primarily used for rendering basemaps. Overlapping polygons look fine when rendered. ([osmcoastlines](https://github.com/osmcode/osmcoastline) even inflates polygons to force overlap and improve rendering quality.) When OSM contributors are editing polygons they often don't notice if the polygons are topologically inconsistent or don't strictly adhere to the OSM guidelines for multipolygon relations.
 
 Another common issue is that, by inspecting the tags alone, it can't be determine whether a way/edge borders water on both sides or borders water on one side and land on the other. Both cases are commonly used and championed in OSM.
 
 ### Basic procedure
-Storing the location of every node is not memory (or cache!) friendly so Beaches makes several passes through the source osm file and only loads locations for a small number of nodes.
+Storing the location of every node is not memory (or LLC) friendly so Beaches makes several passes through the source osm file and only loads locations for a small number of nodes.
 
 - Relations describing water polygons are parsed and cached.
 - All ways bordering water are added to a connectivity graph.
@@ -52,3 +52,8 @@ Storing the location of every node is not memory (or cache!) friendly so Beaches
 - Edges that are bordered by water on both sides are discarded.
 - The entire process is repeated for islands within reachable water polygons.
 - The vectors or polygons are constructed and exported.
+
+### Technical details
+Every entity in OSM has a 64bit id. This id is not durable.  
+There are currently a little over 4 billion nodes and an effort is made to keep the id space dense. 
+In some structures, *beaches* represents ids with 40bits rather than the full 64. OSM entites with ids over 2^40 will not be handled correctly. 
